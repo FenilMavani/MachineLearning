@@ -50,9 +50,17 @@ def main():
         model.fit(trainX, trainY, epochs=100, batch_size=1, verbose=2)
         
         st.write('Predicting stock prices...')
-        testX, testY = create_dataset(test_data, lookback)
-        testX = np.reshape(testX, (testX.shape[0], 1, testX.shape[1]))
-        predicted_prices = model.predict(testX)
+        # Previous code...
+
+testX, testY = create_dataset(test_data, lookback)
+
+if len(testX.shape) < 3:
+    testX = np.reshape(testX, (testX.shape[0], 1, testX.shape[1]))
+
+predicted_prices = model.predict(testX)
+
+# Subsequent code...
+
         predicted_prices = scaler.inverse_transform(predicted_prices)
         
         st.write('Plotting the results...')
