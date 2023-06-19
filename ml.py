@@ -40,20 +40,26 @@ def main():
         lookback = 20
         trainX, trainY = create_dataset(train_data, lookback)
         
-        trainX = np.reshape(trainX, (trainX.shape[0], 1, trainX.shape[1]))
+        trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
         
         st.write('Building and training the model...')
         model = Sequential()
-        model.add(LSTM(50, input_shape=(1, lookback)))
+        model.add(LSTM(50, input_shape=(lookback, 1)))
         model.add(Dense(1))
         model.compile(loss='mean_squared_error', optimizer='adam')
         model.fit(trainX, trainY, epochs=100, batch_size=1, verbose=2)
         
         st.write('Predicting stock prices...')
         testX, testY = create_dataset(test_data, lookback)
-        if len(testX.shape) < 3:
-            testX = np.reshape(testX, (testX.shape[0], 1, testX.shape[1]))
+
+        if testX.ndim == 1:
+            testX = np.reshape(testX, (testX.shape[0], 1))
+
+        if testX.ndim == 2:
+            testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
+
         predicted_prices = model.predict(testX)
+        
         predicted_prices = scaler.inverse_transform(predicted_prices)
         
         st.write('Plotting the results...')
