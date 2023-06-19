@@ -46,7 +46,7 @@ def main():
         model = Sequential()
         model.add(LSTM(50, input_shape=(lookback, 1)))
         model.add(Dense(1))
-        model.compile(loss='mean_squared_error', optimizer='adam')
+        model.compile(loss='mean_squared_error', optimizer='adam', run_eagerly=True)
         model.fit(trainX, trainY, epochs=100, batch_size=1, verbose=2)
         
         st.write('Predicting stock prices...')
