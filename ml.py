@@ -1,100 +1,85 @@
 import streamlit as st
 import yfinance as yf
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Conv1D, MaxPooling1D, Flatten
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from tensorflow.keras.layers import Dense, LSTM
+from datetime import datetime
 
-# Streamlit app
-st.title("Stock Price Prediction")
+# Function to fetch stock data and train the model
+def fetch_and_train_model(ticker, start_date, end_date, window_size):
+    stock_data = yf.download(ticker, start=start_date, end=end_date)
 
-# Stock search bar
-symbol = st.text_input("Enter a stock symbol (e.g., AAPL)", "AAPL")
+    scaler = MinMaxScaler()
+    scaled_data = scaler.fit_transform(stock_data['Close'].values.reshape(-1, 1))
+    X, y = [], []
+    for i in range(len(scaled_data) - window_size):
+        feature = scaled_data[i:i + window_size]
+        label = scaled_data[i + window_size][0]
+        X.append(feature)
+        y.append(label)
+    X = np.array(X)
+    y = np.array(y)
 
-# Download stock data for a given symbol
-@st.cache
-def download_stock_data(symbol):
-    stock_data = yf.download(symbol, start="2010-01-01", end="2022-01-01")
-    return stock_data
+    split_index = int(len(X) * 0.65)
+    X_train, X_test, y_train, y_test = X[:split_index], X[split_index:], y[:split_index], y[split_index:]
 
-stock_data = download_stock_data(symbol)
+    model = Sequential()
+    model.add(LSTM(64, input_shape=(X_train.shape[1], 1), activation='relu', return_sequences=True))
+    model.add(LSTM(128, activation='relu', return_sequences=True))
+    model.add(LSTM(128, activation='relu'))
+    model.add(Dense(1, activation='linear'))
+    model.compile(optimizer='adam', loss='mse')
+    X_train_reshaped = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
+    model.fit(X_train_reshaped, y_train, epochs=100, batch_size=64, verbose=2)
 
-# Preprocess stock data
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(stock_data["Close"].values.reshape(-1, 1))
-train_data = scaled_data[:int(len(scaled_data)*0.8)]
-test_data = scaled_data[int(len(scaled_data)*0.8):]
+    return model, scaler, X_test, y_test
 
-# Define a function to create input sequences for the CNN model
-def create_sequences(data, seq_length):
-    X = []
-    y = []
-    for i in range(seq_length, len(data)):
-        X.append(data[i-seq_length:i, 0])
-        y.append(data[i, 0])
-    return np.array(X), np.array(y)
+# Function to make predictions and plot results
+def make_predictions_and_plot(model, scaler, X_test):
+    X_test_reshaped = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
+    predictions = model.predict(X_test_reshaped)
 
-# Create input sequences for the CNN model
-seq_length = 60
-X_train, y_train = create_sequences(train_data, seq_length)
-X_test, y_test = create_sequences(test_data, seq_length)
+    y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
+    predictions_actual = scaler.inverse_transform(predictions)
 
-# Reshape input data to match the CNN model input shape
-X_train = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
-X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
-
-# Define the CNN model
-model = Sequential()
-model.add(Conv1D(filters=64, kernel_size=3, activation="relu", input_shape=(seq_length, 1)))
-model.add(MaxPooling1D(pool_size=2))
-model.add(Flatten())
-model.add(Dense(50, activation="relu"))
-model.add(Dense(1))
-
-# Compile the CNN model
-model.compile(loss="mean_squared_error", optimizer="adam")
-
-# Train the CNN model
-history = model.fit(X_train, y_train, epochs=3, batch_size=64, validation_data=(X_test, y_test), verbose=2)
-
-# Predict button
-if st.button("Predict"):
-    # Make predictions with the CNN model
-    train_predictions = model.predict(X_train)
-    test_predictions = model.predict(X_test)
-
-    # Reverse the scaling of the predictions
-    train_predictions = scaler.inverse_transform(train_predictions)
-    y_train = scaler.inverse_transform(y_train.reshape(-1, 1))
-    test_predictions = scaler.inverse_transform(test_predictions)
-    y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
-
-    # Calculate MAE, MSE, and RMSE for the test data
-    mae = mean_absolute_error(y_test, test_predictions)
-    mse = mean_squared_error(y_test, test_predictions)
+    mse = mean_squared_error(y_test_actual, predictions_actual)
     rmse = np.sqrt(mse)
+    mape = np.mean(np.abs((y_test_actual - predictions_actual) / y_test_actual)) * 100
 
-    # Plot the training and validation loss
-    st.subheader("Model Loss")
-    plt.plot(history.history["loss"])
-    plt.plot(history.history["val_loss"])
-    plt.ylabel("Loss")
-    plt.xlabel("Epoch")
-    plt.legend(["Train", "Test"], loc="upper right")
-    st.pyplot()
+    st.write(f'Mean Squared Error (MSE): {mse}')
+    st.write(f'Root Mean Squared Error (RMSE): {rmse}')
+    st.write(f'Mean Absolute Percentage Error (MAPE): {mape:.2f}%')
 
-    # Plot the predicted and actual prices for the test data
-    st.subheader("Actual vs. Predicted Prices")
-    plt.plot(y_test, label="Actual")
-    plt.plot(test_predictions, label="Predicted")
+    # Plot the results
+    plt.figure(figsize=(12, 8))
+    plt.plot(y_test_actual, label='Actual')
+    plt.plot(predictions_actual, label='Predicted')
+    plt.title('Actual vs Predicted Stock Prices')
+    plt.xlabel('Days')
+    plt.ylabel('Stock Price')
     plt.legend()
     st.pyplot()
 
-    # Print the evaluation metrics
-    st.subheader("Evaluation Metrics")
-    st.write("Mean Absolute Error:", mae)
-    st.write("Mean Squared Error:", mse)
-    st.write("Root Mean Squared Error:", rmse)
+# Streamlit App
+st.title('Stock Price Predictor')
+
+# Sidebar for user input
+ticker = st.sidebar.text_input('Enter Ticker Symbol', '^GSPC')
+start_date = st.sidebar.text_input('Enter Start Date (YYYY-MM-DD)', '2010-01-01')
+end_date = st.sidebar.text_input('Enter End Date (YYYY-MM-DD)', datetime.now().strftime('%Y-%m-%d'))
+window_size = st.sidebar.slider('Select Window Size', min_value=1, max_value=100, value=60)
+
+if st.sidebar.button('Run Prediction'):
+    st.write(f'Predicting stock prices for {ticker} from {start_date} to {end_date} with a window size of {window_size} days...')
+    
+    # Fetch data and train the model
+    model, scaler, X_test, y_test = fetch_and_train_model(ticker, start_date, end_date, window_size)
+    
+    # Make predictions and plot results
+    make_predictions_and_plot(model, scaler, X_test)
